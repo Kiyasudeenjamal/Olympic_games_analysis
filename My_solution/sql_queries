@@ -1,0 +1,235 @@
+-- How many olympics games have been held?
+select count(distinct games) as total_olympic_games from athlete_events;
+-----------------------------------------------------------------------------------------------------------------
+-- 1.List down all Olympics games held so far.
+select distinct games as olympic_games,city from athlete_events
+order by olympic_games;
+-------------------------------------------------------------------------------------------------------------------
+-- Mention the total no of nations who participated in each olympics game?
+with tab as (
+select a.games,n.region from athlete_events a
+join noc_regions n on a.noc=n.noc)
+select games as olympics_game,count(distinct(region)) as tot_nation from tab
+group by games
+order by games;
+---------------------------------------------------------------------------------------------------------------------------
+-- 3.Which year saw the highest and lowest no of countries participating in olympics?
+with tab as(
+select a.year,n.region from athlete_events a
+join noc_regions n on a.noc=n.noc),
+highest as( 
+select year,count(distinct(region)) no_countries from tab
+group by year
+order by no_countries desc limit 1),
+lowest as(
+select year,count(distinct(region)) no_countries from tab
+group by year
+order by no_countries limit 1
+)
+select *,'highest' as type from highest
+union
+select *,'lowest' from lowest;
+------------------------------------------------------------------------------------------------------------------------------------
+-- 4.Which nation has participated in all of the olympic games?
+with tab as (
+select distinct(a.games),n.region from athlete_events a
+join noc_regions n on a.noc=n.noc where n.region is not null
+)
+select region,rk as tot_games_participate from (
+select *,row_number() over(partition by region) as rk from tab) x
+where rk=(select count(distinct(games)) from athlete_events);
+---------------------------------------------------------------------------------------------------------------------------------------
+-- 5.Identify the sport which was played in all summer olympics.
+with tab as (
+select distinct(games),sport from athlete_events
+where season='summer'
+order by games),
+sum_count as(
+select count(distinct(games)) from athlete_events
+where season='summer'),
+main_tab as(
+select *,row_number() over(partition by sport order by games) as rk from tab)
+select sport,rk as tot_games from main_tab where rk=(select * from sum_count);
+---------------------------------------------------------------------------------------------------------------------------------------
+-- 6.Which Sports were just played only once in the olympics?
+with tab as(
+select distinct(games),sport from athlete_events
+order by games)
+select sport,count(games) as tot_games from tab 
+group by sport having tot_games=1;
+----------------------------------------------------------------------------------------------------------------------------------------
+-- 7.Fetch the total no of sports played in each olympic games.
+with tab as(
+select distinct(games),sport from athlete_events)
+select games,count(sport) as tot_no_sports from tab
+group by games
+order by games;
+------------------------------------------------------------------------------------------------------------------------------------------
+-- 10.Fetch the top 5 athletes who have won the most gold medals.
+with tab as(
+select name,count(medal)as to_no_gold_medal,
+dense_rank() over(order by count(medal) desc) as top_5_gold_medal from athlete_events
+where medal='gold'
+group by name)
+
+select * from tab where top_5_gold_medal<=5; 
+-------------------------------------------------------------------------------------------------------------------------------------------
+-- 11.Fetch the top 5 athletes who have won the most medals (gold/silver/bronze).
+with tab as (
+select name,count(medal) as no_medals,
+dense_rank() over(order by count(medal) desc) as top_5_position
+from athlete_events 
+group by name)
+select * from tab where top_5_position<6
+;
+----------------------------------------------------------------------------------------------------------------------------------------------
+-- 12.Fetch the top 5 most successful countries in olympics. Success is defined by no of medals won.
+with tab as(
+select n.region as country,a.medal as successful_countries from athlete_events a
+join noc_regions n 
+on a.noc=n.noc),
+tab_1 as(
+select country,count(successful_countries) no_of_medals,
+dense_rank() over(order by count(successful_countries) desc) as top_5_countries from tab
+group by country)
+select * from tab_1 
+where  top_5_countries<6;
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-- 13.List down total gold, silver and broze medals won by each country.
+select country,
+sum(case when medals='bronze' then tot else 0 end) as bronze,
+sum(case when medals='gold' then tot else 0 end) as gold,
+sum(case when medals='silver' then tot else 0 end)  as silver from(
+                          select n.region as country,a.medal as medals,count(1) as tot from athlete_events a
+                          join noc_regions n 
+                          on a.noc=n.noc
+						  where n.region is not null and a.medal is not null
+                          group by n.region,a.medal
+                          order by n.region,a.medal) x
+group by country
+order by bronze desc,gold desc,silver desc;
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+-- 14.List down total gold, silver and broze medals won by each country corresponding to each olympic games.
+select olympics,country,
+sum(case when medals='bronze' then tot else 0 end) as bronze,
+sum(case when medals='gold' then tot else 0 end) as gold,
+sum(case when medals='silver' then tot else 0 end)  as silver from(
+                           select a.games as olympics,n.region as country,a.medal as medals,count(1) as tot from athlete_events a
+                          join noc_regions n 
+                          on a.noc=n.noc
+						  where n.region is not null and a.medal is not null
+                          group by a.games,n.region,a.medal
+                          order by a.games) x
+group by olympics,country
+order by olympics
+;
+------------------------------------------------------------------------------------------------------------------------------------------------------
+-- 18.In which Sport/event, India has won highest medals.
+select sport,event,count(medal) as tot_medal 
+from athlete_events
+where team='india'
+group by sport,event
+order by tot_medal desc limit 1;
+----------------------------------------------------------------------------------------------------------------------------------------------------
+-- 17.Which countries have never won gold medal but have won silver/bronze medals?
+select country,
+sum(case when medals='bronze' then tot else 0 end) as bronze,
+sum(case when medals='gold' then tot else 0 end) as gold,
+sum(case when medals='silver' then tot else 0 end)  as silver from(
+                          select n.region as country,a.medal as medals,count(1) as tot from athlete_events a
+                          join noc_regions n 
+                          on a.noc=n.noc
+						  where n.region is not null and a.medal is not null
+                          group by n.region,a.medal
+                          order by n.region,a.medal) x
+group by country
+having gold=0
+order by bronze desc,gold desc,silver desc;
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+-- 8.Fetch details of the oldest athletes to win a gold medal.
+with tab as (
+select id,name,age,medal,games,rank() over(order by age desc) as rk from athlete_events
+where age is not null
+and medal='gold')
+select * from tab
+where rk=1
+;
+------------------------------------------------------------------------------------------------------------------------------------------------------
+-- 9.Find the Ratio of male and female athletes participated in all olympic games.
+with tab as(
+select 
+count(case when sex='f' then 1 end) as female_tot,
+count(case when sex='m' then 1 end) as male_tot
+from athlete_events)
+select concat('1:',male_tot/female_tot) from tab;
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+-- 19.Break down all olympic games where india won medal for Hockey and how many medals in each olympic games.
+with tab as(
+select a.games as olympic,n.region as country,a.sport,a.medal
+from athlete_events a
+join noc_regions n
+on a.noc=n.noc
+where a.medal is not null 
+and a.sport='hockey' and n.region='india')
+select olympic, country, sport, count(medal) as tot from tab
+group by olympic, country, sport 
+order by olympic;
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+-- 15.Identify which country won the most gold, most silver and most bronze medals in each olympic games.
+with tab as(
+select a.games as olympic,n.region as country,a.medal,count(a.medal) as tot
+from athlete_events a join noc_regions n
+on a.noc=n.noc
+where a.medal is not null
+group by olympic,country,a.medal
+order by olympic),
+tab_1 as(
+select *,rank() over(partition by olympic,medal order by tot desc) as rk from tab)
+select olympic, country, medal, tot from tab_1 where rk=1;
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
